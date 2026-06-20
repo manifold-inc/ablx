@@ -334,12 +334,26 @@ class AblxCoreTests(unittest.TestCase):
             config = pipeline_config(source, out)
             config["benchmark"]["gates"]["pre"]["changed_shape_count_min"] = 99
 
-            with self.assertRaises(AblxError):
+            with self.assertRaisesRegex(AblxError, "pre-benchmark failed: .*changed_shape_count_min.*summary.json"):
                 run_pipeline(config)
 
             self.assertTrue((out / "bench" / "pre" / "summary.json").exists())
             self.assertTrue((out / "ablx_pipeline_report.json").exists())
             self.assertFalse((out / "train").exists())
+
+    def test_pipeline_logit_gate_missing_metric_reports_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = make_tiny_model(root / "src")
+            out = root / "missing_logit_metric"
+            config = pipeline_config(source, out)
+            config["benchmark"]["gates"]["pre"]["mean_kl_max"] = 0.0001
+
+            with self.assertRaisesRegex(AblxError, "mean_kl_max missing metric 'mean_kl'.*summary.json"):
+                run_pipeline(config)
+
+            summary = json.loads((out / "bench" / "pre" / "summary.json").read_text())
+            self.assertFalse(summary["metrics"]["logit_probe_available"])
 
     def test_pipeline_continue_on_gate_failure_warns_and_continues(self):
         with tempfile.TemporaryDirectory() as tmp:

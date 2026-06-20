@@ -27,11 +27,13 @@ benchmark:
     pre:
       missing_in_candidate_count_max: 0
       changed_shape_count_min: 1
-      mean_kl_max: 0.0001
-      top1_agreement_min: 0.995
+      # Enable these only after the probe stage is producing logit metrics.
+      # mean_kl_max: 0.0001
+      # top1_agreement_min: 0.995
     post:
       missing_in_candidate_count_max: 0
-      preserve_top1_agreement_min: 0.95
+      # Add capability/preservation gates here once benchmark result parsing is wired
+      # for the exact lm-eval task set you are running.
 
 reverse_distill:
   enabled: true

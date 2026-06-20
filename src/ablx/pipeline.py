@@ -154,12 +154,13 @@ def run_pipeline(config: Mapping[str, object], overrides: Optional[Mapping[str, 
         )
         if not pre_report.passed:
             accepted = False
+            failure = format_benchmark_failure("pre", pre_report)
             if continue_on_gate_fail:
-                warnings.append("pre-benchmark gates failed")
+                warnings.append(failure)
             else:
-                warnings.append("pre-benchmark gates failed")
+                warnings.append(failure)
                 finalize_report(name, source, candidate, out, dry_run, accepted, steps, artifacts, warnings, resolved)
-                raise AblxError("pre-benchmark gates failed")
+                raise AblxError(failure)
     if should_stop(stop_after, "bench-pre"):
         return finalize_report(name, source, candidate, out, dry_run, accepted, steps, artifacts, warnings, resolved)
 
@@ -221,12 +222,13 @@ def run_pipeline(config: Mapping[str, object], overrides: Optional[Mapping[str, 
         )
         if not post_report.passed:
             accepted = False
+            failure = format_benchmark_failure("post", post_report)
             if continue_on_gate_fail:
-                warnings.append("post-benchmark gates failed")
+                warnings.append(failure)
             else:
-                warnings.append("post-benchmark gates failed")
+                warnings.append(failure)
                 finalize_report(name, source, candidate, out, dry_run, accepted, steps, artifacts, warnings, resolved)
-                raise AblxError("post-benchmark gates failed")
+                raise AblxError(failure)
 
     return finalize_report(name, source, candidate, out, dry_run, accepted, steps, artifacts, warnings, resolved)
 
@@ -404,6 +406,13 @@ def stage_files(path: Path) -> List[str]:
     if not path.exists():
         return []
     return [str(item) for item in sorted(path.iterdir()) if item.is_file() or item.is_dir()]
+
+
+def format_benchmark_failure(stage: str, report) -> str:
+    details = "; ".join(report.warnings[:4]) if report.warnings else "no detailed warning recorded"
+    if len(details) > 1000:
+        details = details[:997] + "..."
+    return f"{stage}-benchmark failed: {details}. Summary: {Path(report.out) / 'summary.json'}"
 
 
 def write_yaml(path: Path, data: Mapping[str, object]) -> None:

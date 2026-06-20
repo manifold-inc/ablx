@@ -128,9 +128,12 @@ def build_benchmark_metrics(stage: str, source: str, target: str, probe_report: 
         "target": target,
     }
     if probe_report is not None:
+        metrics["probe_runtime"] = probe_report.runtime
+        metrics["logit_probe_available"] = False
         metrics["probe"] = probe_report.metrics
         logit_probe = probe_report.metrics.get("logit_probe") if isinstance(probe_report.metrics, dict) else None
         if isinstance(logit_probe, dict):
+            metrics["logit_probe_available"] = True
             metrics["mean_kl"] = logit_probe.get("mean_kl")
             metrics["top1_agreement"] = logit_probe.get("top1_agreement")
     else:
@@ -168,8 +171,19 @@ def evaluate_gates(metrics: Mapping[str, object], gates: Mapping[str, object]) -
         results[gate] = {"metric": metric_name, "actual": actual, "expected": expected, "passed": gate_passed}
         if not gate_passed:
             passed = False
-            warnings.append(f"gate failed: {gate} actual={actual!r} expected={expected!r}")
+            if actual is None:
+                warnings.append(
+                    f"gate failed: {gate} missing metric {metric_name!r}; "
+                    f"available metrics={available_metric_keys(metrics)}"
+                )
+            else:
+                warnings.append(f"gate failed: {gate} actual={actual!r} expected={expected!r}")
     return passed, results, warnings
+
+
+def available_metric_keys(metrics: Mapping[str, object]) -> List[str]:
+    keys = sorted(str(key) for key in metrics.keys() if key != "gates")
+    return keys[:50]
 
 
 def parse_gate(gate: str) -> tuple[str, str]:
