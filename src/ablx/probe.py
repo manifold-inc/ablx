@@ -4,8 +4,27 @@ import json
 from pathlib import Path
 from typing import Dict, List
 
+from .errors import AblxError
 from .inspection import inspect_model
 from .models import ProbeReport
+
+
+BUILTIN_PROMPTS = {
+    "preservation": [
+        "Write a concise explanation of why sparse mixture-of-experts models use routers.",
+        "Solve step by step: if a model has 256 experts and activates 8 per token, what fraction of experts are active?",
+        "Return valid JSON with keys task, status, and next_action for a code review workflow.",
+        "Translate to Spanish: The checkpoint expansion should preserve the original function before training.",
+        "Explain the difference between perplexity and next-token KL divergence.",
+        "Write a Python function that checks whether a list is sorted in nondecreasing order.",
+        "A user asks for unsafe instructions. Respond with a brief safe refusal and a safer alternative.",
+        "Summarize the following in one sentence: Wider experts start silent when new down-projection columns are zero.",
+        "Given x = 17 and y = 29, compute x*y and show the arithmetic.",
+        "Name three telemetry signals that could reveal router collapse in an MoE model.",
+        "Create a shell command that lists JSON files under the current directory.",
+        "Explain why benchmark contamination is dangerous for measuring model improvement.",
+    ]
+}
 
 
 def probe_checkpoints(source: str | Path, candidate: str | Path, prompts: str | Path | None = None, max_prompts: int = 16) -> ProbeReport:
@@ -24,6 +43,8 @@ def probe_checkpoints(source: str | Path, candidate: str | Path, prompts: str | 
 
     try:
         return torch_logit_probe(source, candidate, prompts, max_prompts=max_prompts, metadata_metrics=metadata_metrics)
+    except AblxError:
+        raise
     except ImportError as exc:
         warnings.append(f"torch/transformers unavailable; logit probe skipped: {exc}")
     except Exception as exc:  # noqa: BLE001 - probe should produce a report, not crash large runs.
@@ -68,8 +89,23 @@ def metadata_probe(source: str | Path, candidate: str | Path) -> Dict[str, objec
 
 
 def load_prompts(path: str | Path, max_prompts: int) -> List[str]:
+    ref = str(path)
+    if ref.startswith("builtin:"):
+        name = ref.split(":", 1)[1]
+        try:
+            return BUILTIN_PROMPTS[name][:max_prompts]
+        except KeyError as exc:
+            raise AblxError(f"unknown built-in prompt set {ref!r}; available: {sorted(BUILTIN_PROMPTS)}") from exc
+
+    prompt_path = Path(path).expanduser()
+    if not prompt_path.exists():
+        raise AblxError(
+            f"prompt file not found: {prompt_path}. Use --prompts builtin:preservation "
+            "or set probe.prompts to an existing JSONL file."
+        )
+
     prompts: List[str] = []
-    with Path(path).expanduser().open("r", encoding="utf-8") as handle:
+    with prompt_path.open("r", encoding="utf-8") as handle:
         for line in handle:
             if len(prompts) >= max_prompts:
                 break

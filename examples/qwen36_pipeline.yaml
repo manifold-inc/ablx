@@ -10,7 +10,7 @@ upscale:
 
 probe:
   enabled: true
-  prompts: ~/.ablx/probes/preservation.jsonl
+  prompts: builtin:preservation
   max_prompts: 256
 
 benchmark:

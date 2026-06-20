@@ -14,7 +14,7 @@ from ablx.errors import AblxError
 from ablx.inspection import inspect_model
 from ablx.models import TransformOp
 from ablx.pipeline import run_pipeline
-from ablx.probe import probe_checkpoints
+from ablx.probe import load_prompts, probe_checkpoints
 from ablx.recipes import UpscaleRecipe
 from ablx.safetensors_io import TensorPayload, read_tensor_payload, list_tensor_infos, write_safetensors
 from ablx.slime import emit_slime_plan
@@ -230,6 +230,31 @@ class AblxCoreTests(unittest.TestCase):
             plan = emit_slime_plan(out, plan_dir)
             self.assertEqual(sorted(plan["files"]), ["README.md", "commands.json", "freeze_masks.yaml", "slime_phases.yaml"])
             self.assertTrue((plan_dir / "slime_phases.yaml").exists())
+
+    def test_probe_supports_builtin_preservation_prompts(self):
+        prompts = load_prompts("builtin:preservation", max_prompts=3)
+
+        self.assertEqual(len(prompts), 3)
+        self.assertTrue(all(isinstance(prompt, str) and prompt for prompt in prompts))
+
+    def test_probe_missing_prompt_file_raises_clean_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = make_tiny_model(root / "src")
+            out = root / "out"
+            recipe = UpscaleRecipe(
+                name="tiny_expand",
+                transforms=[
+                    TransformOp(
+                        "expand_moe_intermediate",
+                        {"old_intermediate_size": 2, "new_intermediate_size": 3, "noise_std": 0.0},
+                    )
+                ],
+            )
+            upscale_checkpoint(source, recipe, out)
+
+            with self.assertRaisesRegex(AblxError, "prompt file not found"):
+                probe_checkpoints(source, out, prompts=root / "missing.jsonl")
 
     def test_pipeline_executes_all_stages_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
