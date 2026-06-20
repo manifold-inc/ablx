@@ -1,0 +1,10 @@
+name: qwen36_expand_moe_intermediate_768
+description: V1 deterministic Qwen3.6 MoE intermediate expansion.
+transforms:
+  - type: expand_moe_intermediate
+    old_intermediate_size: 512
+    new_intermediate_size: 768
+    noise_std: 0.000001
+    noise_seed: 1729
+    include_mtp: true
+    include_shared_expert: true
