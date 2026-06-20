@@ -155,6 +155,57 @@ class AblxCoreTests(unittest.TestCase):
             down = tensor_words(out / "model.safetensors", infos["model.language_model.layers.0.mlp.experts.down_proj"])
             np.testing.assert_array_equal(down[:, :, 2:], np.zeros((2, 3, 1), dtype=np.uint16))
 
+    def test_expand_split_fp8_expert_layout_and_scale_tensors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = make_tiny_split_fp8_model(root / "split")
+            out = root / "split_out"
+            recipe = UpscaleRecipe(
+                name="tiny_split_fp8_expand",
+                transforms=[
+                    TransformOp(
+                        "expand_moe_intermediate",
+                        {
+                            "old_intermediate_size": 2,
+                            "new_intermediate_size": 3,
+                            "noise_std": 0.0,
+                            "scale_block_size": 1,
+                        },
+                    )
+                ],
+            )
+
+            report = upscale_checkpoint(source, recipe, out)
+
+            self.assertGreaterEqual(len(report.changed_tensors), 12)
+            config = json.loads((out / "config.json").read_text())
+            self.assertEqual(config["text_config"]["moe_intermediate_size"], 3)
+            infos = {info.name: info for info in list_tensor_infos(out / "model.safetensors")}
+
+            gate_name = "model.language_model.layers.0.mlp.experts.0.gate_proj.weight"
+            gate = tensor_bytes(out / "model.safetensors", infos[gate_name])
+            self.assertEqual(list(gate.shape), [3, 3])
+            np.testing.assert_array_equal(gate[:2], np.arange(0, 6, dtype=np.uint8).reshape(2, 3))
+            np.testing.assert_array_equal(gate[2:], np.zeros((1, 3), dtype=np.uint8))
+
+            gate_scale_name = "model.language_model.layers.0.mlp.experts.0.gate_proj.weight_scale_inv"
+            gate_scale = tensor_words(out / "model.safetensors", infos[gate_scale_name])
+            self.assertEqual(list(gate_scale.shape), [3, 3])
+            np.testing.assert_array_equal(gate_scale[:2], np.arange(100, 106, dtype=np.uint16).reshape(2, 3))
+            np.testing.assert_array_equal(gate_scale[2:], np.arange(103, 106, dtype=np.uint16).reshape(1, 3))
+
+            down_name = "model.language_model.layers.0.mlp.experts.0.down_proj.weight"
+            down = tensor_bytes(out / "model.safetensors", infos[down_name])
+            self.assertEqual(list(down.shape), [3, 3])
+            np.testing.assert_array_equal(down[:, :2], np.arange(40, 46, dtype=np.uint8).reshape(3, 2))
+            np.testing.assert_array_equal(down[:, 2:], np.zeros((3, 1), dtype=np.uint8))
+
+            down_scale_name = "model.language_model.layers.0.mlp.experts.0.down_proj.weight_scale_inv"
+            down_scale = tensor_words(out / "model.safetensors", infos[down_scale_name])
+            self.assertEqual(list(down_scale.shape), [3, 3])
+            np.testing.assert_array_equal(down_scale[:, :2], np.arange(130, 136, dtype=np.uint16).reshape(3, 2))
+            np.testing.assert_array_equal(down_scale[:, 2:], np.array([[131], [133], [135]], dtype=np.uint16))
+
     def test_probe_and_slime_plan_emit_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -359,6 +410,47 @@ def make_tiny_model(model_dir: Path, dtype: str = "F32") -> Path:
     return model_dir
 
 
+def make_tiny_split_fp8_model(model_dir: Path) -> Path:
+    model_dir.mkdir(parents=True)
+    config = {
+        "model_type": "qwen3_5_moe",
+        "architectures": ["Qwen3_5MoeForConditionalGeneration"],
+        "text_config": {
+            "model_type": "qwen3_5_moe_text",
+            "hidden_size": 3,
+            "num_hidden_layers": 1,
+            "num_experts": 1,
+            "num_experts_per_tok": 1,
+            "moe_intermediate_size": 2,
+            "shared_expert_intermediate_size": 2,
+            "vocab_size": 16,
+        },
+        "quantization_config": {"quant_method": "fp8", "weight_block_size": [1, 1]},
+    }
+    (model_dir / "config.json").write_text(json.dumps(config), encoding="utf-8")
+    prefix = "model.language_model.layers.0.mlp"
+    tensors = [
+        payload(f"{prefix}.experts.0.gate_proj.weight", np.arange(0, 6, dtype=np.uint8).reshape(2, 3), "F8_E4M3"),
+        payload(f"{prefix}.experts.0.gate_proj.weight_scale_inv", np.arange(100, 106, dtype=np.uint16).reshape(2, 3), "BF16"),
+        payload(f"{prefix}.experts.0.up_proj.weight", np.arange(20, 26, dtype=np.uint8).reshape(2, 3), "F8_E4M3"),
+        payload(f"{prefix}.experts.0.up_proj.weight_scale_inv", np.arange(110, 116, dtype=np.uint16).reshape(2, 3), "BF16"),
+        payload(f"{prefix}.experts.0.down_proj.weight", np.arange(40, 46, dtype=np.uint8).reshape(3, 2), "F8_E4M3"),
+        payload(f"{prefix}.experts.0.down_proj.weight_scale_inv", np.arange(130, 136, dtype=np.uint16).reshape(3, 2), "BF16"),
+        payload(f"{prefix}.shared_expert.gate_proj.weight", np.arange(60, 66, dtype=np.uint8).reshape(2, 3), "F8_E4M3"),
+        payload(f"{prefix}.shared_expert.gate_proj.weight_scale_inv", np.arange(140, 146, dtype=np.uint16).reshape(2, 3), "BF16"),
+        payload(f"{prefix}.shared_expert.up_proj.weight", np.arange(70, 76, dtype=np.uint8).reshape(2, 3), "F8_E4M3"),
+        payload(f"{prefix}.shared_expert.up_proj.weight_scale_inv", np.arange(150, 156, dtype=np.uint16).reshape(2, 3), "BF16"),
+        payload(f"{prefix}.shared_expert.down_proj.weight", np.arange(80, 86, dtype=np.uint8).reshape(3, 2), "F8_E4M3"),
+        payload(f"{prefix}.shared_expert.down_proj.weight_scale_inv", np.arange(160, 166, dtype=np.uint16).reshape(3, 2), "BF16"),
+        payload(f"{prefix}.gate.weight", np.arange(200, 203, dtype=np.float32).reshape(1, 3), "F32"),
+    ]
+    write_safetensors(model_dir / "model.safetensors", tensors, metadata={"format": "pt"})
+    weight_map = {tensor.name: "model.safetensors" for tensor in tensors}
+    index = {"metadata": {"total_size": sum(tensor.nbytes for tensor in tensors)}, "weight_map": weight_map}
+    (model_dir / "model.safetensors.index.json").write_text(json.dumps(index), encoding="utf-8")
+    return model_dir
+
+
 def pipeline_config(source: Path, out: Path) -> dict:
     return {
         "name": "tiny_pipeline",
@@ -420,6 +512,10 @@ def tensor_array(shard: Path, info):
 
 def tensor_words(shard: Path, info):
     return np.frombuffer(read_tensor_payload(shard, info).data, dtype=np.uint16).reshape(info.shape)
+
+
+def tensor_bytes(shard: Path, info):
+    return np.frombuffer(read_tensor_payload(shard, info).data, dtype=np.uint8).reshape(info.shape)
 
 
 if __name__ == "__main__":

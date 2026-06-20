@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import json
+import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Dict, Iterable, List, Optional
@@ -234,6 +236,96 @@ class ExpandDenseOut(TensorTransform):
             transform=self.name,
             trainable_slices=[f"axis1[{self.old_i}:{self.new_i}] zero-start dense columns"],
             notes=["new down columns are zero, preserving the function at step 0"],
+        )
+
+
+class ExpandScaleIn(TensorTransform):
+    name = "expand_moe_intermediate:scale_in"
+
+    def __init__(self, old_i: int, new_i: int, block_size: int) -> None:
+        self.old_i = int(old_i)
+        self.new_i = int(new_i)
+        self.block_size = int(block_size)
+
+    @property
+    def old_blocks(self) -> int:
+        return math.ceil(self.old_i / self.block_size)
+
+    @property
+    def new_blocks(self) -> int:
+        return math.ceil(self.new_i / self.block_size)
+
+    def target_info(self, source: TensorInfo) -> TensorInfo:
+        shape = list(source.shape)
+        if len(shape) != 2:
+            raise CheckpointFormatError(f"{source.name} expected [I_blocks, hidden_blocks], got {shape}")
+        if shape[0] != self.old_blocks:
+            raise CheckpointFormatError(f"{source.name} axis 0 is {shape[0]}, expected {self.old_blocks}")
+        shape[0] = self.new_blocks
+        return TensorInfo(source.name, source.dtype, shape, [0, expected_nbytes(source.dtype, shape)], source.shard)
+
+    def write(self, source_shard: Path, source_info: TensorInfo, output: BinaryIO) -> None:
+        payload = read_tensor_payload(source_shard, source_info)
+        old = tensor_to_numpy(payload)
+        new = np.zeros([self.new_blocks, old.shape[1]], dtype=old.dtype)
+        new[: self.old_blocks, :] = old
+        if self.new_blocks > self.old_blocks:
+            new[self.old_blocks :, :] = old[self.old_blocks - 1 : self.old_blocks, :]
+        output.write(new.tobytes(order="C"))
+
+    def mapping(self, source: TensorInfo, target: TensorInfo) -> TensorMapping:
+        return TensorMapping(
+            name=source.name,
+            source_shape=list(source.shape),
+            target_shape=list(target.shape),
+            transform=self.name,
+            trainable_slices=[f"axis0[{self.old_blocks}:{self.new_blocks}] copied scale blocks"],
+            notes=["scale grid expanded for split FP8 gate/up weights"],
+        )
+
+
+class ExpandScaleOut(TensorTransform):
+    name = "expand_moe_intermediate:scale_out"
+
+    def __init__(self, old_i: int, new_i: int, block_size: int) -> None:
+        self.old_i = int(old_i)
+        self.new_i = int(new_i)
+        self.block_size = int(block_size)
+
+    @property
+    def old_blocks(self) -> int:
+        return math.ceil(self.old_i / self.block_size)
+
+    @property
+    def new_blocks(self) -> int:
+        return math.ceil(self.new_i / self.block_size)
+
+    def target_info(self, source: TensorInfo) -> TensorInfo:
+        shape = list(source.shape)
+        if len(shape) != 2:
+            raise CheckpointFormatError(f"{source.name} expected [hidden_blocks, I_blocks], got {shape}")
+        if shape[1] != self.old_blocks:
+            raise CheckpointFormatError(f"{source.name} axis 1 is {shape[1]}, expected {self.old_blocks}")
+        shape[1] = self.new_blocks
+        return TensorInfo(source.name, source.dtype, shape, [0, expected_nbytes(source.dtype, shape)], source.shard)
+
+    def write(self, source_shard: Path, source_info: TensorInfo, output: BinaryIO) -> None:
+        payload = read_tensor_payload(source_shard, source_info)
+        old = tensor_to_numpy(payload)
+        new = np.zeros([old.shape[0], self.new_blocks], dtype=old.dtype)
+        new[:, : self.old_blocks] = old
+        if self.new_blocks > self.old_blocks:
+            new[:, self.old_blocks :] = old[:, self.old_blocks - 1 : self.old_blocks]
+        output.write(new.tobytes(order="C"))
+
+    def mapping(self, source: TensorInfo, target: TensorInfo) -> TensorMapping:
+        return TensorMapping(
+            name=source.name,
+            source_shape=list(source.shape),
+            target_shape=list(target.shape),
+            transform=self.name,
+            trainable_slices=[f"axis1[{self.old_blocks}:{self.new_blocks}] copied scale blocks"],
+            notes=["scale grid expanded for split FP8 down weights"],
         )
 
 
@@ -479,6 +571,7 @@ def plan_expand_moe_intermediate(spec: ModelSpec, op: TransformOp, config: Dict[
     noise_std = float(params.get("noise_std", 1e-6))
     seed = int(params.get("noise_seed", 1729))
     include_shared = bool(params.get("include_shared_expert", True))
+    scale_block_size = int(params.get("scale_block_size") or get_quant_block_size(active_text_config(config), config) or 128)
 
     planned: Dict[str, TensorTransform] = {}
     for index, tensor in enumerate(spec.tensors):
@@ -488,12 +581,24 @@ def plan_expand_moe_intermediate(spec: ModelSpec, op: TransformOp, config: Dict[
             planned[name] = ExpandFusedGateUp(old_i, new_i, noise_std, seed_i)
         elif name.endswith(".mlp.experts.down_proj"):
             planned[name] = ExpandExpertDown(old_i, new_i)
+        elif is_split_expert_gate_or_up_weight(name):
+            planned[name] = ExpandDenseIn(old_i, new_i, noise_std, seed_i)
+        elif is_split_expert_down_weight(name):
+            planned[name] = ExpandDenseOut(old_i, new_i)
+        elif is_split_expert_gate_or_up_scale(name):
+            planned[name] = ExpandScaleIn(old_i, new_i, scale_block_size)
+        elif is_split_expert_down_scale(name):
+            planned[name] = ExpandScaleOut(old_i, new_i, scale_block_size)
         elif include_shared and is_shared_gate_up(name):
             planned[name] = ExpandDenseFusedGateUp(old_i, new_i, noise_std, seed_i)
-        elif include_shared and is_shared_dense_in(name):
+        elif include_shared and is_shared_dense_in_weight(name):
             planned[name] = ExpandDenseIn(old_i, new_i, noise_std, seed_i)
-        elif include_shared and is_shared_dense_out(name):
+        elif include_shared and is_shared_dense_out_weight(name):
             planned[name] = ExpandDenseOut(old_i, new_i)
+        elif include_shared and is_shared_dense_in_scale(name):
+            planned[name] = ExpandScaleIn(old_i, new_i, scale_block_size)
+        elif include_shared and is_shared_dense_out_scale(name):
+            planned[name] = ExpandScaleOut(old_i, new_i, scale_block_size)
 
     if not planned:
         raise RecipeError("expand_moe_intermediate did not match any MoE tensors")
@@ -508,14 +613,54 @@ def is_shared_gate_up(name: str) -> bool:
     return (".shared_expert." in name or ".shared_experts." in name) and name.endswith("gate_up_proj")
 
 
-def is_shared_dense_in(name: str) -> bool:
+def is_shared_dense_in_weight(name: str) -> bool:
     return (".shared_expert." in name or ".shared_experts." in name) and (
-        name.endswith("gate_proj") or name.endswith("up_proj")
+        name.endswith("gate_proj")
+        or name.endswith("up_proj")
+        or name.endswith("gate_proj.weight")
+        or name.endswith("up_proj.weight")
     )
 
 
-def is_shared_dense_out(name: str) -> bool:
-    return (".shared_expert." in name or ".shared_experts." in name) and name.endswith("down_proj")
+def is_shared_dense_out_weight(name: str) -> bool:
+    return (".shared_expert." in name or ".shared_experts." in name) and (
+        name.endswith("down_proj") or name.endswith("down_proj.weight")
+    )
+
+
+def is_shared_dense_in_scale(name: str) -> bool:
+    return (".shared_expert." in name or ".shared_experts." in name) and (
+        name.endswith("gate_proj.weight_scale_inv") or name.endswith("up_proj.weight_scale_inv")
+    )
+
+
+def is_shared_dense_out_scale(name: str) -> bool:
+    return (".shared_expert." in name or ".shared_experts." in name) and name.endswith("down_proj.weight_scale_inv")
+
+
+def is_split_expert_gate_or_up_weight(name: str) -> bool:
+    return re.search(r"\.mlp\.experts\.\d+\.(gate_proj|up_proj)\.weight$", name) is not None
+
+
+def is_split_expert_down_weight(name: str) -> bool:
+    return re.search(r"\.mlp\.experts\.\d+\.down_proj\.weight$", name) is not None
+
+
+def is_split_expert_gate_or_up_scale(name: str) -> bool:
+    return re.search(r"\.mlp\.experts\.\d+\.(gate_proj|up_proj)\.weight_scale_inv$", name) is not None
+
+
+def is_split_expert_down_scale(name: str) -> bool:
+    return re.search(r"\.mlp\.experts\.\d+\.down_proj\.weight_scale_inv$", name) is not None
+
+
+def get_quant_block_size(active: Dict[str, object], config: Dict[str, object]) -> int:
+    quant = config.get("quantization_config")
+    if isinstance(quant, dict):
+        block = quant.get("weight_block_size")
+        if isinstance(block, list) and block:
+            return int(block[0])
+    return 128
 
 
 def plan_clone_experts(spec: ModelSpec, op: TransformOp, config: Dict[str, object]) -> Dict[str, TensorTransform]:
@@ -546,7 +691,7 @@ def plan_clone_experts(spec: ModelSpec, op: TransformOp, config: Dict[str, objec
 
 
 def is_routed_expert_tensor(name: str) -> bool:
-    return ".mlp.experts." in name and not is_router_tensor(name)
+    return ".mlp.experts." in name and not re.search(r"\.mlp\.experts\.\d+\.", name) and not is_router_tensor(name)
 
 
 def is_router_tensor(name: str) -> bool:
