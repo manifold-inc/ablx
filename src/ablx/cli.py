@@ -7,6 +7,7 @@ from typing import Any
 
 from .errors import AblxError
 from .inspection import inspect_model
+from .pipeline import load_pipeline_config, run_pipeline
 from .probe import probe_checkpoints
 from .recipes import default_qwen36_recipe, load_recipe
 from .slime import emit_slime_plan
@@ -54,7 +55,32 @@ def build_parser() -> argparse.ArgumentParser:
     slime_p.add_argument("--out", required=True, help="Output plan directory.")
     slime_p.set_defaults(func=cmd_slime_plan)
 
+    add_pipeline_parser(subparsers, "pipeline")
+    add_pipeline_parser(subparsers, "run-pipeline")
+
     return parser
+
+
+def add_pipeline_parser(subparsers: argparse._SubParsersAction, name: str) -> None:
+    pipeline_p = subparsers.add_parser(name, help="Execute an upscale/probe/benchmark/reverse-distill pipeline.")
+    pipeline_p.add_argument("--config", required=True, help="Pipeline YAML config.")
+    pipeline_p.add_argument("--source", help="Override source checkpoint path.")
+    pipeline_p.add_argument("--out", help="Override run output directory.")
+    pipeline_p.add_argument("--candidate", help="Override candidate checkpoint path.")
+    pipeline_p.add_argument("--recipe", help="Override upscale recipe path.")
+    pipeline_p.add_argument("--prompts", help="Override probe prompt JSONL.")
+    pipeline_p.add_argument("--max-prompts", type=int, help="Override max probe prompts.")
+    pipeline_p.add_argument("--bench-suite", help="Override benchmark suite.")
+    pipeline_p.add_argument("--serve-backend", help="Override benchmark serving backend.")
+    pipeline_p.add_argument("--train-backend", help="Override reverse-distill backend.")
+    pipeline_p.add_argument("--dry-run", action="store_true", help="Preview stages without writing artifacts or launching jobs.")
+    pipeline_p.add_argument("--skip-upscale", action="store_true", help="Use an existing candidate.")
+    pipeline_p.add_argument("--skip-probe", action="store_true", help="Skip probe stage.")
+    pipeline_p.add_argument("--skip-benchmark", action="store_true", help="Skip pre/post benchmark stages.")
+    pipeline_p.add_argument("--skip-train", action="store_true", help="Skip reverse-distillation stage.")
+    pipeline_p.add_argument("--stop-after", choices=["inspect", "upscale", "probe", "bench-pre", "train", "bench-post"])
+    pipeline_p.add_argument("--continue-on-gate-fail", action="store_true", help="Continue later stages after gate failures.")
+    pipeline_p.set_defaults(func=cmd_pipeline)
 
 
 def cmd_inspect(args: argparse.Namespace) -> dict[str, Any]:
@@ -78,3 +104,26 @@ def cmd_probe(args: argparse.Namespace) -> dict[str, Any]:
 
 def cmd_slime_plan(args: argparse.Namespace) -> dict[str, Any]:
     return emit_slime_plan(args.candidate, args.out)
+
+
+def cmd_pipeline(args: argparse.Namespace) -> dict[str, Any]:
+    config = load_pipeline_config(args.config)
+    overrides = {
+        "source": args.source,
+        "out": args.out,
+        "candidate": args.candidate,
+        "recipe": args.recipe,
+        "prompts": args.prompts,
+        "max_prompts": args.max_prompts,
+        "bench_suite": args.bench_suite,
+        "serve_backend": args.serve_backend,
+        "train_backend": args.train_backend,
+        "dry_run": True if args.dry_run else None,
+        "skip_upscale": True if args.skip_upscale else None,
+        "skip_probe": True if args.skip_probe else None,
+        "skip_benchmark": True if args.skip_benchmark else None,
+        "skip_train": True if args.skip_train else None,
+        "stop_after": args.stop_after,
+        "continue_on_gate_fail": True if args.continue_on_gate_fail else None,
+    }
+    return run_pipeline(config, overrides).to_dict()

@@ -1,11 +1,17 @@
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 import numpy as np
+import yaml
 
+from ablx.cli import main
+from ablx.errors import AblxError
 from ablx.inspection import inspect_model
+from ablx.pipeline import run_pipeline
 from ablx.probe import probe_checkpoints
 from ablx.recipes import UpscaleRecipe
 from ablx.models import TransformOp
@@ -173,6 +179,112 @@ class AblxCoreTests(unittest.TestCase):
             self.assertEqual(sorted(plan["files"]), ["README.md", "commands.json", "freeze_masks.yaml", "slime_phases.yaml"])
             self.assertTrue((plan_dir / "slime_phases.yaml").exists())
 
+    def test_pipeline_executes_all_stages_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = make_tiny_model(root / "src")
+            out = root / "run"
+            config = pipeline_config(source, out)
+
+            report = run_pipeline(config)
+
+            self.assertFalse(report.dry_run)
+            self.assertTrue(report.accepted)
+            self.assertEqual([step.name for step in report.steps], ["inspect", "upscale", "probe", "bench-pre", "train", "bench-post"])
+            self.assertTrue((out / "candidate" / "ablx_expansion_report.json").exists())
+            self.assertTrue((out / "probe" / "ablx_probe_report.json").exists())
+            self.assertTrue((out / "bench" / "pre" / "summary.json").exists())
+            self.assertTrue((out / "train" / "reverse_distill_plan.yaml").exists())
+            self.assertTrue((out / "bench" / "post" / "summary.json").exists())
+            self.assertTrue((out / "ablx_pipeline_report.json").exists())
+
+    def test_pipeline_dry_run_is_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = make_tiny_model(root / "src")
+            out = root / "dry"
+            config = pipeline_config(source, out)
+            config["dry_run"] = True
+
+            report = run_pipeline(config)
+
+            self.assertTrue(report.dry_run)
+            self.assertFalse(out.exists())
+            self.assertTrue(all(step.status in {"planned", "skipped"} for step in report.steps))
+
+    def test_pipeline_gate_failure_stops_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = make_tiny_model(root / "src")
+            out = root / "gate"
+            config = pipeline_config(source, out)
+            config["benchmark"]["gates"]["pre"]["changed_shape_count_min"] = 99
+
+            with self.assertRaises(AblxError):
+                run_pipeline(config)
+
+            self.assertTrue((out / "bench" / "pre" / "summary.json").exists())
+            self.assertTrue((out / "ablx_pipeline_report.json").exists())
+            self.assertFalse((out / "train").exists())
+
+    def test_pipeline_continue_on_gate_failure_warns_and_continues(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = make_tiny_model(root / "src")
+            out = root / "warn"
+            config = pipeline_config(source, out)
+            config["continue_on_gate_fail"] = True
+            config["benchmark"]["gates"]["pre"]["changed_shape_count_min"] = 99
+
+            report = run_pipeline(config)
+
+            self.assertFalse(report.accepted)
+            self.assertTrue(any("pre-benchmark" in warning for warning in report.warnings))
+            self.assertTrue((out / "train" / "reverse_distill_plan.yaml").exists())
+            self.assertTrue((out / "bench" / "post" / "summary.json").exists())
+
+    def test_pipeline_missing_training_backend_fails_when_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = make_tiny_model(root / "src")
+            out = root / "missing_backend"
+            config = pipeline_config(source, out)
+            config["reverse_distill"] = {"enabled": True, "backend": "slime", "launch_training": True, "emit_slime_plan": False}
+
+            with self.assertRaises(AblxError):
+                run_pipeline(config)
+
+    def test_pipeline_skip_train_emits_no_training_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = make_tiny_model(root / "src")
+            out = root / "skip_train"
+            config = pipeline_config(source, out)
+            config["skip_train"] = True
+
+            report = run_pipeline(config)
+
+            train_step = next(step for step in report.steps if step.name == "train")
+            self.assertEqual(train_step.status, "skipped")
+            self.assertFalse((out / "train" / "commands.json").exists())
+
+    def test_cli_pipeline_returns_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = make_tiny_model(root / "src")
+            out = root / "cli"
+            config_path = root / "pipeline.yaml"
+            config_path.write_text(yaml.safe_dump(pipeline_config(source, out), sort_keys=False), encoding="utf-8")
+            stdout = StringIO()
+
+            with redirect_stdout(stdout):
+                code = main(["pipeline", "--config", str(config_path)])
+
+            self.assertEqual(code, 0)
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(payload["name"], "tiny_pipeline")
+            self.assertTrue(payload["accepted"])
+
 
 def make_tiny_model(model_dir: Path, dtype: str = "F32") -> Path:
     model_dir.mkdir(parents=True)
@@ -207,6 +319,47 @@ def make_tiny_model(model_dir: Path, dtype: str = "F32") -> Path:
     (model_dir / "model.safetensors.index.json").write_text(json.dumps(index), encoding="utf-8")
     (model_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
     return model_dir
+
+
+def pipeline_config(source: Path, out: Path) -> dict:
+    return {
+        "name": "tiny_pipeline",
+        "source": str(source),
+        "out": str(out),
+        "upscale": {
+            "enabled": True,
+            "out": "candidate",
+            "recipe": {
+                "name": "tiny_expand",
+                "transforms": [
+                    {
+                        "type": "expand_moe_intermediate",
+                        "old_intermediate_size": 2,
+                        "new_intermediate_size": 3,
+                        "noise_std": 0.0,
+                    }
+                ],
+            },
+        },
+        "probe": {"enabled": True, "max_prompts": 2},
+        "benchmark": {
+            "enabled": True,
+            "suite": "preserve",
+            "serve_backend": "metadata",
+            "run_commands": True,
+            "gates": {
+                "pre": {"missing_in_candidate_count_max": 0, "changed_shape_count_min": 1},
+                "post": {"missing_in_candidate_count_max": 0},
+            },
+        },
+        "reverse_distill": {
+            "enabled": True,
+            "backend": "local",
+            "mode": "light",
+            "launch_training": True,
+            "emit_slime_plan": False,
+        },
+    }
 
 
 def array_data(start: int, count: int, shape, dtype: str) -> np.ndarray:

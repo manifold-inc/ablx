@@ -1,9 +1,13 @@
 """Deterministic weight-space upscaling tools for MoE LLM checkpoints."""
 
 from .models import (
+    BenchmarkReport,
     ExpansionReport,
     ModelSpec,
+    PipelineReport,
+    PipelineStepReport,
     ProbeReport,
+    TrainPlanReport,
     TensorInfo,
     TensorMapping,
     TransformOp,
@@ -11,9 +15,13 @@ from .models import (
 )
 
 __all__ = [
+    "BenchmarkReport",
     "ExpansionReport",
     "ModelSpec",
+    "PipelineReport",
+    "PipelineStepReport",
     "ProbeReport",
+    "TrainPlanReport",
     "TensorInfo",
     "TensorMapping",
     "TransformOp",

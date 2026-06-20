@@ -25,6 +25,9 @@ probe = [
   "torch",
   "transformers>=4.57"
 ]
+bench = [
+  "lm-eval"
+]
 dev = [
   "pytest>=8",
   "safetensors>=0.5"

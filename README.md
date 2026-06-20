@@ -12,6 +12,7 @@ ablx inspect --model /path/to/checkpoint
 ablx upscale --source /path/to/checkpoint --recipe examples/qwen36_expand_768.yaml --out /path/to/out
 ablx probe --source /path/to/checkpoint --candidate /path/to/out --prompts prompts.jsonl
 ablx slime-plan --candidate /path/to/out --out /path/to/slime-plan
+ablx pipeline --config examples/qwen36_pipeline.yaml
 ```
 
 Remote Hugging Face model IDs are supported when `huggingface_hub` is installed.
@@ -30,3 +31,13 @@ Large-model logit probing requires optional `torch` and `transformers`.
 
 `clone_experts` is present as an experimental gated transform for dry-runs of
 true total-parameter expansion. It is not the default first training path.
+
+## Pipeline
+
+`ablx pipeline` executes enabled stages by default: upscale, probe, benchmark,
+light reverse distillation, then post-training benchmark. Use `--dry-run` only
+when you want a read-only preview.
+
+For real Qwen3.6 runs, configure `benchmark.serve_backend` for vLLM or SGLang
+and set `reverse_distill.slime_root` or `reverse_distill.commands` so the slime
+training launch can be checked before the command starts heavy work.

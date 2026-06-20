@@ -1,0 +1,41 @@
+name: qwen36_x768_light_reverse_distill
+source: /models/qwen36-35b-a3b
+out: /runs/qwen36-x768-light-rd
+dry_run: false
+
+upscale:
+  enabled: true
+  out: candidate
+  recipe: examples/qwen36_expand_768.yaml
+
+probe:
+  enabled: true
+  prompts: probes/preservation.jsonl
+  max_prompts: 256
+
+benchmark:
+  enabled: true
+  suite: preserve
+  serve_backend: vllm
+  run_commands: true
+  lm_eval_tasks:
+    - wikitext
+    - hellaswag
+    - arc_challenge
+    - gsm8k
+  gates:
+    pre:
+      missing_in_candidate_count_max: 0
+      changed_shape_count_min: 1
+      mean_kl_max: 0.0001
+      top1_agreement_min: 0.995
+    post:
+      missing_in_candidate_count_max: 0
+      preserve_top1_agreement_min: 0.95
+
+reverse_distill:
+  enabled: true
+  backend: slime
+  mode: light
+  launch_training: true
+  emit_slime_plan: true

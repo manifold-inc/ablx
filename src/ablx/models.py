@@ -128,6 +128,81 @@ class ProbeReport:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class BenchmarkReport:
+    stage: str
+    source: str
+    candidate: str
+    out: str
+    suite: str
+    backend: str
+    commands: List[str] = field(default_factory=list)
+    command_results: List[JsonDict] = field(default_factory=list)
+    metrics: JsonDict = field(default_factory=dict)
+    gates: JsonDict = field(default_factory=dict)
+    passed: bool = True
+    warnings: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> JsonDict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class TrainPlanReport:
+    source: str
+    candidate: str
+    out: str
+    backend: str
+    mode: str
+    launch_training: bool
+    commands: List[str] = field(default_factory=list)
+    command_results: List[JsonDict] = field(default_factory=list)
+    artifacts: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> JsonDict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class PipelineStepReport:
+    name: str
+    status: str
+    out: str = ""
+    artifacts: List[str] = field(default_factory=list)
+    metrics: JsonDict = field(default_factory=dict)
+    warnings: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> JsonDict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class PipelineReport:
+    name: str
+    source: str
+    candidate: str
+    out: str
+    dry_run: bool
+    accepted: bool
+    steps: List[PipelineStepReport]
+    artifacts: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> JsonDict:
+        return {
+            "name": self.name,
+            "source": self.source,
+            "candidate": self.candidate,
+            "out": self.out,
+            "dry_run": self.dry_run,
+            "accepted": self.accepted,
+            "steps": [step.to_dict() for step in self.steps],
+            "artifacts": list(self.artifacts),
+            "warnings": list(self.warnings),
+        }
+
+
 def summarize_config(config: Mapping[str, Any]) -> JsonDict:
     text_config = config.get("text_config")
     active = text_config if isinstance(text_config, Mapping) else config
