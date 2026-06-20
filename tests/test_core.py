@@ -25,6 +25,16 @@ class AblxCoreTests(unittest.TestCase):
             self.assertEqual(len(spec.tensors), 8)
             self.assertEqual(spec.tensor("model.language_model.layers.0.mlp.experts.gate_up_proj").shape, [2, 4, 3])
 
+    def test_inspect_accepts_fp8_safetensors_dtype(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model_dir = make_tiny_model(Path(tmp) / "fp8", dtype="F8_E4M3")
+
+            spec = inspect_model(model_dir)
+
+            tensor = spec.tensor("model.language_model.layers.0.mlp.experts.gate_up_proj")
+            self.assertEqual(tensor.dtype, "F8_E4M3")
+            self.assertEqual(tensor.nbytes, 2 * 4 * 3)
+
     def test_expand_moe_intermediate_maps_fused_and_shared_tensors(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -200,7 +210,12 @@ def make_tiny_model(model_dir: Path, dtype: str = "F32") -> Path:
 
 
 def array_data(start: int, count: int, shape, dtype: str) -> np.ndarray:
-    np_dtype = np.uint16 if dtype == "BF16" else np.float32
+    if dtype == "BF16":
+        np_dtype = np.uint16
+    elif dtype.startswith("F8_"):
+        return (np.arange(start, start + count, dtype=np.uint16) % 256).astype(np.uint8).reshape(shape)
+    else:
+        np_dtype = np.float32
     return np.arange(start, start + count, dtype=np_dtype).reshape(shape)
 
 
