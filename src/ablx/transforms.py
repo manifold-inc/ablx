@@ -9,6 +9,7 @@ from typing import BinaryIO, Dict, Iterable, List, Optional
 import numpy as np
 
 from .errors import CheckpointFormatError, RecipeError
+from .hf import resolve_model_path
 from .inspection import inspect_model
 from .models import ExpansionReport, ModelSpec, TensorInfo, TensorMapping, TransformOp, UpscaleRecipe
 from .safetensors_io import (
@@ -375,7 +376,7 @@ class CloneRouter(TensorTransform):
 
 
 def upscale_checkpoint(source: str | Path, recipe: UpscaleRecipe, out: str | Path) -> ExpansionReport:
-    source_dir = Path(source).expanduser().resolve()
+    source_dir = resolve_model_path(str(source))
     out_dir = Path(out).expanduser().resolve()
     if source_dir == out_dir:
         raise RecipeError("output directory must differ from source directory")

@@ -31,7 +31,7 @@ def load_pipeline_config(path: str | Path) -> Dict[str, object]:
 def run_pipeline(config: Mapping[str, object], overrides: Optional[Mapping[str, object]] = None) -> PipelineReport:
     resolved = resolve_pipeline_config(config, overrides or {})
     name = str(resolved.get("name", "ablx_pipeline"))
-    source = Path(str(required(resolved, "source"))).expanduser().resolve()
+    source_ref = str(required(resolved, "source"))
     out = Path(str(required(resolved, "out"))).expanduser().resolve()
     dry_run = bool(resolved.get("dry_run", False))
     stop_after = resolved.get("stop_after")
@@ -55,13 +55,16 @@ def run_pipeline(config: Mapping[str, object], overrides: Optional[Mapping[str, 
     warnings: List[str] = []
     accepted = True
 
-    source_spec = inspect_model(source)
+    source_spec = inspect_model(source_ref)
+    source = Path(source_spec.path).expanduser().resolve()
     steps.append(
         PipelineStepReport(
             name="inspect",
             status="planned" if dry_run else "completed",
             out=str(source),
-            metrics=source_spec.to_dict() if dry_run else {"model_type": source_spec.model_type, "tensor_count": len(source_spec.tensors)},
+            metrics=source_spec.to_dict()
+            if dry_run
+            else {"model_type": source_spec.model_type, "tensor_count": len(source_spec.tensors), "requested_source": source_ref},
         )
     )
     if should_stop(stop_after, "inspect"):

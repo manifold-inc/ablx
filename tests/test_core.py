@@ -4,6 +4,7 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import yaml
@@ -11,10 +12,10 @@ import yaml
 from ablx.cli import main
 from ablx.errors import AblxError
 from ablx.inspection import inspect_model
+from ablx.models import TransformOp
 from ablx.pipeline import run_pipeline
 from ablx.probe import probe_checkpoints
 from ablx.recipes import UpscaleRecipe
-from ablx.models import TransformOp
 from ablx.safetensors_io import TensorPayload, read_tensor_payload, list_tensor_infos, write_safetensors
 from ablx.slime import emit_slime_plan
 from ablx.transforms import upscale_checkpoint
@@ -197,6 +198,43 @@ class AblxCoreTests(unittest.TestCase):
             self.assertTrue((out / "train" / "reverse_distill_plan.yaml").exists())
             self.assertTrue((out / "bench" / "post" / "summary.json").exists())
             self.assertTrue((out / "ablx_pipeline_report.json").exists())
+
+    def test_pipeline_preserves_hf_source_id_until_model_resolution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            local_model = make_tiny_model(root / "resolved")
+            out = root / "hf"
+            config = pipeline_config(local_model, out)
+            config["source"] = "Qwen/Qwen3.6-35B-A3B-FP8"
+
+            with patch("ablx.pipeline.inspect_model") as inspect_mock:
+                inspect_mock.return_value = inspect_model(local_model)
+                report = run_pipeline(config, {"stop_after": "inspect"})
+
+            inspect_mock.assert_called_once_with("Qwen/Qwen3.6-35B-A3B-FP8")
+            self.assertEqual(report.steps[0].out, str(local_model.resolve()))
+
+    def test_upscale_checkpoint_resolves_hf_source_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            local_model = make_tiny_model(root / "resolved")
+            out = root / "hf_upscale"
+            recipe = UpscaleRecipe(
+                name="tiny_expand",
+                transforms=[
+                    TransformOp(
+                        "expand_moe_intermediate",
+                        {"old_intermediate_size": 2, "new_intermediate_size": 3, "noise_std": 0.0},
+                    )
+                ],
+            )
+
+            with patch("ablx.transforms.resolve_model_path", return_value=local_model.resolve()) as resolver:
+                report = upscale_checkpoint("Qwen/Qwen3.6-35B-A3B-FP8", recipe, out)
+
+            resolver.assert_called_once_with("Qwen/Qwen3.6-35B-A3B-FP8")
+            self.assertEqual(report.source, str(local_model.resolve()))
+            self.assertTrue((out / "ablx_expansion_report.json").exists())
 
     def test_pipeline_dry_run_is_read_only(self):
         with tempfile.TemporaryDirectory() as tmp:

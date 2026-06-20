@@ -1,5 +1,5 @@
 name: qwen36_x768_light_reverse_distill
-source: /models/qwen36-35b-a3b
+source: Qwen/Qwen3.6-35B-A3B-FP8
 out: /runs/qwen36-x768-light-rd
 dry_run: false
 

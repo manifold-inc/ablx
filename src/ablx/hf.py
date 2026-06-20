@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .errors import DependencyMissingError
+from .errors import AblxError, DependencyMissingError
 
 
 def resolve_model_path(model: str) -> Path:
@@ -18,4 +18,7 @@ def resolve_model_path(model: str) -> Path:
             "to resolve Hugging Face model IDs."
         ) from exc
 
-    return Path(snapshot_download(repo_id=model, allow_patterns=["*.json", "*.safetensors", "*.model", "*.txt", "*.py"])).resolve()
+    try:
+        return Path(snapshot_download(repo_id=model, allow_patterns=["*.json", "*.safetensors", "*.model", "*.txt", "*.py"])).resolve()
+    except Exception as exc:  # noqa: BLE001 - normalize HF/client errors for the CLI.
+        raise AblxError(f"could not resolve model {model!r} as a local path or Hugging Face repo ID: {exc}") from exc
