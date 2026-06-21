@@ -13,8 +13,12 @@ class ParentConfig(BaseModel):
     hf_id: str | None = None
     path: str | None = None
     dtype: str = "bfloat16"
+    revision: str | None = None
+    cache_dir: str | None = None
+    local_dir: str | None = None
+    allow_patterns: list[str] | None = None
 
-    @field_validator("hf_id", "path")
+    @field_validator("hf_id", "path", "revision", "cache_dir", "local_dir")
     @classmethod
     def empty_to_none(cls, value: str | None) -> str | None:
         return value or None

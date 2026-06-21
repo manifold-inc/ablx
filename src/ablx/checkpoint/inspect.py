@@ -4,12 +4,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .resolve import resolve_checkpoint_ref
 from .qwen36_map import tag_tensor
 from .safetensors_io import tensor_manifest
 
 
 def inspect_checkpoint(model: str | Path) -> dict[str, Any]:
-    root = Path(model).expanduser()
+    root = resolve_checkpoint_ref(model)
     config_path = root / "config.json" if root.is_dir() else None
     config = {}
     if config_path and config_path.exists():

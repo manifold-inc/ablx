@@ -6,6 +6,7 @@ from typing import Any
 import torch
 
 from ablx.config import ExpandTransformConfig, PipelineConfig
+from ablx.checkpoint.resolve import resolve_checkpoint_ref
 from ablx.checkpoint.safetensors_io import rewrite_checkpoint
 from ablx.fixtures import create_tiny_checkpoint
 from ablx.transforms.clone_experts import ExpertCloneConfig, clone_expert_tensor
@@ -15,9 +16,12 @@ from ablx.utils import ensure_dir, write_json
 
 
 def expand_checkpoint(config: PipelineConfig) -> dict[str, Any]:
-    source = Path(config.expand.source or config.parent.reference()).expanduser()
+    source_ref = config.expand.source or config.parent.reference()
+    source = Path(source_ref).expanduser()
     if not source.exists() and config.name.startswith("tiny"):
         source = create_tiny_checkpoint(source)
+    else:
+        source = resolve_checkpoint_ref(source_ref, parent=config.parent)
     out = ensure_dir(config.out_dir / "expanded")
     transforms = config.expand.transforms
     reports: list[dict[str, Any]] = []

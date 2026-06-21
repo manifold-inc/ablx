@@ -6,6 +6,8 @@ from pathlib import Path
 import torch
 from safetensors.torch import load_file
 
+import ablx.checkpoint.resolve as resolve_mod
+from ablx.checkpoint.resolve import resolve_checkpoint_ref
 from ablx.benchmark.compare import compare_reports
 from ablx.benchmark.runner import run_benchmark
 from ablx.compute.estimate import compute_plan
@@ -104,3 +106,15 @@ def test_native_benchmark_report(tmp_path: Path) -> None:
     assert (tmp_path / "bench_report.json").exists()
     saved = json.loads((tmp_path / "bench_report.json").read_text(encoding="utf-8"))
     assert saved["suite"] == "core"
+
+
+def test_hf_repo_id_is_not_treated_as_relative_path(tmp_path: Path, monkeypatch) -> None:
+    target = tmp_path / "hf-snapshot"
+    target.mkdir()
+
+    def fake_download(repo_id, *, parent=None):
+        assert repo_id == "Qwen/Qwen3.6-35B-A3B"
+        return target
+
+    monkeypatch.setattr(resolve_mod, "download_hf_checkpoint", fake_download)
+    assert resolve_checkpoint_ref("Qwen/Qwen3.6-35B-A3B") == target

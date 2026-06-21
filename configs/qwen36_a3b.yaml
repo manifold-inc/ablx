@@ -2,6 +2,10 @@ name: qwen36_a3b_intermediate768_clone2
 parent:
   hf_id: Qwen/Qwen3.6-35B-A3B
   dtype: bfloat16
+  # Optional: choose where the HF snapshot lands on the training host.
+  # local_dir: /data/models/Qwen3.6-35B-A3B
+  # cache_dir: /data/hf-cache
+  # revision: main
 
 expand:
   transforms:

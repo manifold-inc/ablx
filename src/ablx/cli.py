@@ -21,7 +21,7 @@ app = typer.Typer(no_args_is_help=True, help="MoE upscaling pipeline for Hugging
 
 
 @app.command()
-def inspect(model: Annotated[Path, typer.Option("--model", exists=True)]) -> None:
+def inspect(model: Annotated[str, typer.Option("--model")]) -> None:
     print_json(inspect_checkpoint(model))
 
 
@@ -79,15 +79,16 @@ def pipeline(
     print_json(run_pipeline(load_config(config), dry_run=dry_run))
 
 
-def main() -> None:
+def main() -> int:
     try:
-        app()
+        app(standalone_mode=False)
+        return 0
     except GateFailure as exc:
         typer.echo(str(exc), err=True)
-        raise typer.Exit(code=2) from exc
+        return 2
     except AblxError as exc:
         typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+        return 1
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ description = "MoE model upscaling research pipeline for Qwen-style Hugging Face
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "huggingface-hub>=0.24",
   "numpy>=1.24",
   "pydantic>=2",
   "PyYAML>=6",
@@ -22,6 +23,7 @@ dependencies = [
 train = [
   "accelerate",
   "datasets",
+  "huggingface-hub>=0.24",
   "peft",
   "pillow",
   "transformers>=4.57",
