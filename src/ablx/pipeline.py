@@ -9,7 +9,7 @@ from ablx.compute.estimate import compute_plan
 from ablx.config import PipelineConfig
 from ablx.probe.runner import run_probe
 from ablx.train.checkpoint import resolve_benchmark_checkpoint, trained_checkpoint_dir
-from ablx.train.trainer import train_model
+from ablx.train.trainer import train_model, validate_training_launch
 from ablx.transforms.expand import expand_checkpoint
 from ablx.upsample.constrained_noise import upsample_checkpoint
 from ablx.utils import ensure_dir, log_progress, set_progress_file, write_json
@@ -25,6 +25,9 @@ def run_pipeline(
     set_progress_file(out / "progress.log")
     stages: dict[str, Any] = {}
     log_progress(f"pipeline: output_dir={out}")
+    if config.train.launch and not dry_run:
+        log_progress("pipeline: preflight training launch")
+        validate_training_launch(config, config_path=config_path, require_student=False)
     log_progress("pipeline: compute-plan")
     stages["compute"] = compute_plan(config)
     log_progress("pipeline: expand")

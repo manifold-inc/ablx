@@ -10,13 +10,7 @@ reports so a run can be audited after the fact.
 ## Install
 
 ```bash
-python -m pip install -e ".[dev]"
-```
-
-Optional training and benchmark extras:
-
-```bash
-python -m pip install -e ".[train,benchmark,dev]"
+uv sync
 ```
 
 ## CLI
@@ -54,4 +48,4 @@ This repository implements the mechanics needed to study MoE upscaling:
 - staged training plans and a lightweight local trainer path.
 
 The default tests use small CPU fixtures. Large Qwen3.6 runs require local model
-weights, training extras, and suitable GPU hardware.
+weights and suitable GPU hardware.

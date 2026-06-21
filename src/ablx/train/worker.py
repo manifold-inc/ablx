@@ -69,7 +69,9 @@ def run_hf_text_worker(
         from accelerate import Accelerator
         from transformers import AutoModelForCausalLM, AutoTokenizer
     except Exception as exc:  # pragma: no cover - depends on optional deps
-        raise OptionalDependencyError("training requires `python -m pip install -e '.[train]'`") from exc
+        raise OptionalDependencyError(
+            "training dependencies are missing; install the project environment with: uv sync"
+        ) from exc
 
     accelerator = Accelerator(mixed_precision="bf16")
     tokenizer_ref = config.parent.path or config.parent.hf_id or str(student)

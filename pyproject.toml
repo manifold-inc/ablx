@@ -9,28 +9,23 @@ description = "MoE model upscaling research pipeline for Qwen-style Hugging Face
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "accelerate",
+  "datasets",
   "huggingface-hub>=0.24",
+  "lm-eval",
   "numpy>=1.24",
+  "peft",
+  "pillow",
   "pydantic>=2",
   "PyYAML>=6",
   "rich>=13",
   "safetensors>=0.4",
   "torch>=2",
+  "transformers>=4.57",
   "typer>=0.12",
 ]
 
 [project.optional-dependencies]
-train = [
-  "accelerate",
-  "datasets",
-  "huggingface-hub>=0.24",
-  "peft",
-  "pillow",
-  "transformers>=4.57",
-]
-benchmark = [
-  "lm-eval",
-]
 dev = [
   "pytest>=8",
 ]

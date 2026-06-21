@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -7,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ablx.config import PipelineConfig
-from ablx.errors import AblxError, ConfigError, TrainingLaunchError
+from ablx.errors import ConfigError, OptionalDependencyError, TrainingLaunchError
 from ablx.train.checkpoint import trained_checkpoint_dir
 from ablx.train.data import data_manifest
 from ablx.train.freeze import build_freeze_masks
@@ -53,7 +54,7 @@ def train_model(
     if not launch:
         return report
 
-    validate_training_launch(config, config_path=config_path)
+    validate_training_launch(config, config_path=config_path, require_student=True)
     result = launch_training_worker(commands[0], cwd=Path.cwd())
     report["launch_result"] = result
     if int(result["returncode"]) != 0:
@@ -89,10 +90,15 @@ def build_training_commands(config: PipelineConfig, *, config_path: str | Path |
     ]
 
 
-def validate_training_launch(config: PipelineConfig, *, config_path: str | Path | None) -> None:
+def validate_training_launch(
+    config: PipelineConfig,
+    *,
+    config_path: str | Path | None,
+    require_student: bool = True,
+) -> None:
     if config_path is None or str(config_path) == "<missing-config-path>":
         raise ConfigError("training launch requires a real --config path; refusing to run ${CONFIG} placeholder")
-    if not (config.out_dir / "upsampled").exists():
+    if require_student and not (config.out_dir / "upsampled").exists():
         raise ConfigError(f"student checkpoint is missing: {config.out_dir / 'upsampled'}")
     if config.train.num_gpus < 1:
         raise ConfigError("train.num_gpus must be >= 1")
@@ -101,12 +107,23 @@ def validate_training_launch(config: PipelineConfig, *, config_path: str | Path 
     if config.train.backend == "accelerate_fsdp":
         if shutil.which("torchrun") is None:
             raise ConfigError("torchrun was not found on PATH")
+        missing = missing_training_modules()
+        if missing:
+            raise OptionalDependencyError(
+                "training backend 'accelerate_fsdp' requires missing modules: "
+                f"{', '.join(missing)}. Install the project environment with: uv sync"
+            )
         text_items = config.train.data.get("text", []) if isinstance(config.train.data, dict) else []
         if not text_items:
             raise ConfigError(
                 "train.launch is true but train.data.text is empty. "
                 "Add local text files or inline text samples before launching training."
             )
+
+
+def missing_training_modules() -> list[str]:
+    required = ["accelerate", "transformers"]
+    return [name for name in required if importlib.util.find_spec(name) is None]
 
 
 def launch_training_worker(command: list[str], *, cwd: Path) -> dict[str, Any]:

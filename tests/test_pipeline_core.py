@@ -16,7 +16,8 @@ from ablx.fixtures import create_tiny_checkpoint
 from ablx.pipeline import run_pipeline
 from ablx.probe.gates import evaluate_gate, next_token_metrics
 from ablx.train.checkpoint import trained_checkpoint_dir
-from ablx.train.trainer import build_training_commands, train_model
+from ablx.errors import OptionalDependencyError
+from ablx.train.trainer import build_training_commands, train_model, validate_training_launch
 from ablx.transforms.expand import expand_checkpoint
 from ablx.upsample.constrained_noise import upsample_checkpoint
 
@@ -162,3 +163,15 @@ def test_pipeline_launch_benchmarks_trained_checkpoint(tmp_path: Path) -> None:
     assert report["stages"]["bench_final"]["model"] != str(cfg.out_dir / "upsampled")
     assert (cfg.out_dir / "delta_vs_parent.json").exists()
     assert (cfg.out_dir / "BENCH_SUMMARY_final.md").exists()
+
+
+def test_accelerate_preflight_fails_before_student_required(tmp_path: Path, monkeypatch) -> None:
+    config_path = write_config(tmp_path, launch=True, backend="accelerate_fsdp")
+    cfg = load_config(config_path)
+    monkeypatch.setattr("ablx.train.trainer.missing_training_modules", lambda: ["accelerate", "transformers"])
+    try:
+        validate_training_launch(cfg, config_path=config_path, require_student=False)
+    except OptionalDependencyError as exc:
+        assert "uv sync" in str(exc)
+    else:
+        raise AssertionError("expected OptionalDependencyError")
