@@ -16,7 +16,7 @@ from ablx.train.trainer import train_model
 from ablx.train.worker import run_training_worker
 from ablx.transforms.expand import expand_checkpoint
 from ablx.upsample.constrained_noise import upsample_checkpoint
-from ablx.utils import compact_report, print_json
+from ablx.utils import compact_report, log_progress, print_json, set_progress_file
 
 app = typer.Typer(no_args_is_help=True, help="MoE upscaling pipeline for Hugging Face checkpoints.")
 
@@ -28,12 +28,18 @@ def inspect(model: Annotated[str, typer.Option("--model")]) -> None:
 
 @app.command()
 def expand(config: Annotated[Path, typer.Option("--config", exists=True)]) -> None:
-    print_json(compact_report(expand_checkpoint(load_config(config))))
+    cfg = load_config(config)
+    set_progress_file(cfg.out_dir / "progress.log")
+    log_progress(f"cli: starting expand config={config.resolve()}")
+    print_json(compact_report(expand_checkpoint(cfg)))
 
 
 @app.command()
 def upsample(config: Annotated[Path, typer.Option("--config", exists=True)]) -> None:
-    print_json(compact_report(upsample_checkpoint(load_config(config))))
+    cfg = load_config(config)
+    set_progress_file(cfg.out_dir / "progress.log")
+    log_progress(f"cli: starting upsample config={config.resolve()}")
+    print_json(compact_report(upsample_checkpoint(cfg)))
 
 
 @app.command()
@@ -82,7 +88,10 @@ def pipeline(
     config: Annotated[Path, typer.Option("--config", exists=True)],
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
-    print_json(compact_report(run_pipeline(load_config(config), config_path=config, dry_run=dry_run)))
+    cfg = load_config(config)
+    set_progress_file(cfg.out_dir / "progress.log")
+    log_progress(f"cli: starting pipeline config={config.resolve()} dry_run={dry_run}")
+    print_json(compact_report(run_pipeline(cfg, config_path=config, dry_run=dry_run)))
 
 
 def main() -> int:

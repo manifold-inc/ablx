@@ -12,7 +12,7 @@ from ablx.train.checkpoint import resolve_benchmark_checkpoint, trained_checkpoi
 from ablx.train.trainer import train_model
 from ablx.transforms.expand import expand_checkpoint
 from ablx.upsample.constrained_noise import upsample_checkpoint
-from ablx.utils import ensure_dir, log_progress, write_json
+from ablx.utils import ensure_dir, log_progress, set_progress_file, write_json
 
 
 def run_pipeline(
@@ -22,6 +22,7 @@ def run_pipeline(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     out = ensure_dir(config.out_dir)
+    set_progress_file(out / "progress.log")
     stages: dict[str, Any] = {}
     log_progress(f"pipeline: output_dir={out}")
     log_progress("pipeline: compute-plan")

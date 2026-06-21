@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+_PROGRESS_FILE: Path | None = None
 
 
 def ensure_dir(path: str | Path) -> Path:
@@ -44,8 +47,21 @@ def print_json(data: Any) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
 
 
+def set_progress_file(path: str | Path | None) -> None:
+    global _PROGRESS_FILE
+    _PROGRESS_FILE = Path(path).expanduser().resolve() if path else None
+    if _PROGRESS_FILE:
+        _PROGRESS_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+
 def log_progress(message: str) -> None:
-    print(f"[ablx] {message}", file=sys.stderr, flush=True)
+    line = f"[ablx] {message}"
+    print(line, file=sys.stderr, flush=True)
+    if _PROGRESS_FILE:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        with _PROGRESS_FILE.open("a", encoding="utf-8") as handle:
+            handle.write(f"{timestamp} {line}\n")
+            handle.flush()
 
 
 def compact_report(data: Any) -> Any:
