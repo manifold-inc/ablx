@@ -11,6 +11,7 @@ from safetensors import safe_open
 from safetensors.torch import load_file, save_file
 
 from ablx.errors import CheckpointFormatError
+from ablx.utils import log_progress
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ def rewrite_checkpoint(
     transform: TensorTransform,
     *,
     copy_non_tensor_files: bool = True,
+    progress_label: str | None = None,
 ) -> list[str]:
     src = Path(source).expanduser().resolve()
     dst = Path(out).expanduser().resolve()
@@ -74,16 +76,27 @@ def rewrite_checkpoint(
                     shutil.rmtree(target)
                 shutil.copytree(path, target)
 
-    for shard in checkpoint_files(src):
+    shards = checkpoint_files(src)
+    for index, shard in enumerate(shards, start=1):
+        if progress_label:
+            log_progress(f"{progress_label}: loading shard {index}/{len(shards)} {shard.name}")
         tensors = load_shard(shard)
+        if progress_label:
+            log_progress(f"{progress_label}: transforming {len(tensors)} tensors from {shard.name}")
         new_tensors: dict[str, torch.Tensor] = {}
         for name, tensor in tensors.items():
             for out_name, out_tensor in transform(name, tensor):
                 new_tensors[out_name] = out_tensor.contiguous()
         shard_name = shard.name
+        if progress_label:
+            log_progress(f"{progress_label}: writing shard {index}/{len(shards)} {shard_name}")
         save_file(new_tensors, str(dst / shard_name))
         written.append(shard_name)
+        if progress_label:
+            log_progress(f"{progress_label}: completed shard {index}/{len(shards)} {shard_name}")
 
+    if progress_label:
+        log_progress(f"{progress_label}: rebuilding safetensors index")
     rebuild_index_if_present(src, dst)
     return written
 

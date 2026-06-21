@@ -12,17 +12,19 @@ from ablx.fixtures import create_tiny_checkpoint
 from ablx.transforms.clone_experts import ExpertCloneConfig, clone_expert_tensor
 from ablx.transforms.config_patch import patch_qwen36_config
 from ablx.transforms.moe_intermediate import IntermediateExpansion, expand_intermediate_tensor
-from ablx.utils import ensure_dir, write_json
+from ablx.utils import ensure_dir, log_progress, write_json
 
 
 def expand_checkpoint(config: PipelineConfig) -> dict[str, Any]:
     source_ref = config.expand.source or config.parent.reference()
+    log_progress(f"expand: resolving source {source_ref}")
     source = Path(source_ref).expanduser()
     if not source.exists() and config.name.startswith("tiny"):
         source = create_tiny_checkpoint(source)
     else:
         source = resolve_checkpoint_ref(source_ref, parent=config.parent)
     out = ensure_dir(config.out_dir / "expanded")
+    log_progress(f"expand: writing expanded checkpoint to {out}")
     transforms = config.expand.transforms
     reports: list[dict[str, Any]] = []
     config_updates: dict[str, Any] = {}
@@ -67,7 +69,7 @@ def expand_checkpoint(config: PipelineConfig) -> dict[str, Any]:
         for cand_name, cand_tensor in candidates:
             yield cand_name, cand_tensor
 
-    written = rewrite_checkpoint(source, out, apply_all)
+    written = rewrite_checkpoint(source, out, apply_all, progress_label="expand")
     num_experts = _patched_num_experts(config, reports)
     patch_report = patch_qwen36_config(
         out,
@@ -87,6 +89,7 @@ def expand_checkpoint(config: PipelineConfig) -> dict[str, Any]:
         "expanded_tensor_count": sum(1 for item in reports if item.get("new_shape") != item.get("old_shape")),
     }
     write_json(out / "expansion_report.json", report)
+    log_progress(f"expand: wrote report {out / 'expansion_report.json'}")
     return report
 
 

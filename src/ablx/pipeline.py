@@ -12,7 +12,7 @@ from ablx.train.checkpoint import resolve_benchmark_checkpoint, trained_checkpoi
 from ablx.train.trainer import train_model
 from ablx.transforms.expand import expand_checkpoint
 from ablx.upsample.constrained_noise import upsample_checkpoint
-from ablx.utils import ensure_dir, write_json
+from ablx.utils import ensure_dir, log_progress, write_json
 
 
 def run_pipeline(
@@ -23,9 +23,14 @@ def run_pipeline(
 ) -> dict[str, Any]:
     out = ensure_dir(config.out_dir)
     stages: dict[str, Any] = {}
+    log_progress(f"pipeline: output_dir={out}")
+    log_progress("pipeline: compute-plan")
     stages["compute"] = compute_plan(config)
+    log_progress("pipeline: expand")
     stages["expand"] = expand_checkpoint(config)
+    log_progress("pipeline: upsample")
     stages["upsample"] = upsample_checkpoint(config)
+    log_progress("pipeline: probe")
     stages["probe"] = run_probe(config, fail_on_gate=not dry_run)
 
     benchmark_targets: dict[str, Any] = {
@@ -33,6 +38,7 @@ def run_pipeline(
         "lift": {"path": str(out / "upsampled"), "role": "upsampled", "benchmarked": False},
         "final": {"path": str(trained_checkpoint_dir(config)), "role": "trained", "benchmarked": False},
     }
+    log_progress("pipeline: benchmark parent")
     bench_parent = run_benchmark(
         config.parent.reference(),
         config=config,
@@ -42,6 +48,7 @@ def run_pipeline(
         pipeline_stage="baseline",
     )
     benchmark_targets["parent"]["benchmarked"] = True
+    log_progress("pipeline: benchmark lift")
     bench_lift = run_benchmark(
         out / "upsampled",
         config=config,
@@ -63,6 +70,7 @@ def run_pipeline(
     stages["bench_parent"] = bench_parent
     stages["bench_lift"] = bench_lift
     stages["delta_lift"] = delta_lift
+    log_progress("pipeline: train")
     stages["train"] = train_model(config, config_path=config_path, dry_run=dry_run)
 
     trained_path = resolve_benchmark_checkpoint(config, stages["train"])
@@ -74,6 +82,7 @@ def run_pipeline(
         }
         stages["delta_final"] = {"skipped": True, "reason": "bench_final skipped"}
     else:
+        log_progress(f"pipeline: benchmark trained checkpoint {trained_path}")
         bench_final = run_benchmark(
             trained_path,
             config=config,
@@ -103,4 +112,5 @@ def run_pipeline(
         "stages": stages,
     }
     write_json(out / "pipeline_report.json", report)
+    log_progress(f"pipeline: wrote report {out / 'pipeline_report.json'}")
     return report

@@ -9,18 +9,20 @@ from ablx.config import PipelineConfig
 from ablx.errors import TransformError
 from ablx.checkpoint.safetensors_io import rewrite_checkpoint
 from ablx.upsample.masks import load_expansion_masks
-from ablx.utils import ensure_dir, write_json
+from ablx.utils import ensure_dir, log_progress, write_json
 
 
 def upsample_checkpoint(config: PipelineConfig, source: str | Path | None = None) -> dict[str, Any]:
     if config.upsample.generator != "constrained_noise":
         raise NotImplementedError("only generator='constrained_noise' is implemented in v1")
     src = Path(source or (config.out_dir / "expanded")).expanduser()
+    log_progress(f"upsample: reading expanded checkpoint from {src}")
     report_path = src / "expansion_report.json"
     if not report_path.exists():
         raise TransformError(f"missing expansion report: {report_path}")
     masks = load_expansion_masks(report_path)
     out = ensure_dir(config.out_dir / "upsampled")
+    log_progress(f"upsample: writing upsampled checkpoint to {out}")
     seed = config.upsample.noise_seed
     noise_std = config.upsample.noise_std
     touched: list[dict[str, Any]] = []
@@ -45,7 +47,7 @@ def upsample_checkpoint(config: PipelineConfig, source: str | Path | None = None
             )
         yield name, out_tensor
 
-    written = rewrite_checkpoint(src, out, transform)
+    written = rewrite_checkpoint(src, out, transform, progress_label="upsample")
     report = {
         "stage": "upsample",
         "source": str(src),
@@ -60,6 +62,7 @@ def upsample_checkpoint(config: PipelineConfig, source: str | Path | None = None
         "constraint": "new slices only; cloned expert deltas seeded by original expert group",
     }
     write_json(out / "upsample_report.json", report)
+    log_progress(f"upsample: wrote report {out / 'upsample_report.json'}")
     return report
 
 
