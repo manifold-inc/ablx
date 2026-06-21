@@ -1,0 +1,60 @@
+name: tiny_moe_smoke
+parent:
+  path: tests/fixtures/tiny_parent
+  dtype: float32
+
+expand:
+  source: tests/fixtures/tiny_parent
+  transforms:
+    - type: expand_moe_intermediate
+      old_intermediate_size: 2
+      new_intermediate_size: 3
+      include_shared_expert: true
+      include_mtp: true
+    - type: clone_experts
+      factor: 2
+      zero_mean_deltas: true
+      include_shared_expert: true
+      include_mtp: true
+
+upsample:
+  generator: constrained_noise
+  noise_std: 0.0
+  noise_seed: 1729
+  project_to_constraint_set: true
+
+probe:
+  text_prompts: configs/prompts/preservation.txt
+  gates:
+    max_kl: 0.05
+    top1_agreement: 0.98
+    top5_overlap: 0.98
+    max_logit_abs_diff: 1.0e-3
+
+benchmark:
+  suites:
+    - core
+  soft_gate: true
+  limit: 4
+  regression_thresholds:
+    coding_aggregate: -0.02
+    math_aggregate: -0.02
+
+train:
+  launch: false
+  backend: accelerate_fsdp
+  num_gpus: 8
+  micro_batch: 1
+  seq_len: 128
+  grad_accum: 1
+  stages:
+    - name: preservation_warmup
+      steps: 1
+      freeze: old_slices
+      lambda_kl: 1.0
+      lambda_ce: 0.1
+  data:
+    text: []
+    multimodal: []
+
+output_dir: runs/tiny

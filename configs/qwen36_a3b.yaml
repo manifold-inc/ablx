@@ -1,0 +1,80 @@
+name: qwen36_a3b_intermediate768_clone2
+parent:
+  hf_id: Qwen/Qwen3.6-35B-A3B
+  dtype: bfloat16
+
+expand:
+  transforms:
+    - type: expand_moe_intermediate
+      old_intermediate_size: 512
+      new_intermediate_size: 768
+      include_shared_expert: true
+      include_mtp: true
+    - type: clone_experts
+      factor: 2
+      zero_mean_deltas: true
+      include_shared_expert: true
+      include_mtp: true
+
+upsample:
+  generator: constrained_noise
+  noise_std: 1.0e-6
+  noise_seed: 1729
+  project_to_constraint_set: true
+
+probe:
+  text_prompts: configs/prompts/preservation.txt
+  vision_prompts: configs/prompts/vision_preservation.jsonl
+  gates:
+    max_kl: 0.05
+    top1_agreement: 0.98
+    top5_overlap: 0.98
+    max_logit_abs_diff: 1.0e-3
+
+benchmark:
+  suites:
+    - core
+    - lm_eval:
+        tasks: ["mmlu", "gsm8k", "humaneval", "mmmu", "ruler_32k"]
+        backend: auto
+        num_fewshot: 0
+        limit: null
+  soft_gate: true
+  regression_thresholds:
+    coding_aggregate: -0.02
+    math_aggregate: -0.02
+    multimodal_aggregate: -0.03
+    long_context_aggregate: -0.03
+  compare_to: parent
+
+train:
+  launch: false
+  backend: accelerate_fsdp
+  num_gpus: 8
+  micro_batch: 1
+  seq_len: 4096
+  grad_accum: 8
+  stages:
+    - name: preservation_warmup
+      steps: 2000
+      freeze: old_slices
+      lambda_kl: 1.0
+      lambda_ce: 0.1
+      lambda_act: 0.5
+      lambda_anchor: 1.0
+    - name: capacity_wakeup
+      steps: 8000
+      freeze: old_slices
+      lambda_kl: 0.5
+      lambda_ce: 1.0
+      train_router: lora
+    - name: teacher_relax
+      steps: 20000
+      freeze: partial_old
+      lambda_kl: 0.1
+      lambda_ce: 1.0
+  data:
+    text: []
+    multimodal: []
+
+output_dir: runs/qwen36_a3b_v1

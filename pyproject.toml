@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ablx"
+version = "0.1.0"
+description = "MoE model upscaling research pipeline for Qwen-style Hugging Face checkpoints"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.24",
+  "pydantic>=2",
+  "PyYAML>=6",
+  "rich>=13",
+  "safetensors>=0.4",
+  "torch>=2",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+train = [
+  "accelerate",
+  "datasets",
+  "peft",
+  "pillow",
+  "transformers>=4.57",
+]
+benchmark = [
+  "lm-eval",
+]
+dev = [
+  "pytest>=8",
+]
+
+[project.scripts]
+ablx = "ablx.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "gpu: requires GPU hardware",
+  "optional: requires optional dependencies",
+]
