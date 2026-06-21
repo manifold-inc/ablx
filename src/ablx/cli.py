@@ -13,6 +13,7 @@ from ablx.errors import AblxError, GateFailure
 from ablx.pipeline import run_pipeline
 from ablx.probe.runner import run_probe
 from ablx.train.trainer import train_model
+from ablx.train.worker import run_training_worker
 from ablx.transforms.expand import expand_checkpoint
 from ablx.upsample.constrained_noise import upsample_checkpoint
 from ablx.utils import print_json
@@ -46,7 +47,7 @@ def probe(
 
 @app.command()
 def benchmark(
-    model: Annotated[Path, typer.Option("--model")],
+    model: Annotated[str, typer.Option("--model")],
     suite: Annotated[str, typer.Option("--suite")] = "core",
     out: Annotated[Path | None, typer.Option("--out")] = None,
     limit: Annotated[int | None, typer.Option("--limit")] = None,
@@ -68,7 +69,12 @@ def train(
     cfg = load_config(config)
     if launch:
         cfg.train.launch = True
-    print_json(train_model(cfg, dry_run=dry_run))
+    print_json(train_model(cfg, config_path=config, dry_run=dry_run))
+
+
+@app.command("train-worker")
+def train_worker(config: Annotated[Path, typer.Option("--config", exists=True)]) -> None:
+    print_json(run_training_worker(load_config(config), config_path=config))
 
 
 @app.command()
@@ -76,7 +82,7 @@ def pipeline(
     config: Annotated[Path, typer.Option("--config", exists=True)],
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ) -> None:
-    print_json(run_pipeline(load_config(config), dry_run=dry_run))
+    print_json(run_pipeline(load_config(config), config_path=config, dry_run=dry_run))
 
 
 def main() -> int:
@@ -92,4 +98,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

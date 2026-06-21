@@ -52,12 +52,15 @@ benchmark:
   compare_to: parent
 
 train:
-  launch: false
+  launch: true
   backend: accelerate_fsdp
   num_gpus: 8
   micro_batch: 1
   seq_len: 4096
   grad_accum: 8
+  checkpoint_dir: null   # defaults to {output_dir}/train/checkpoint
+  output_checkpoint: final
+  max_worker_steps: null
   stages:
     - name: preservation_warmup
       steps: 2000
@@ -78,7 +81,11 @@ train:
       lambda_kl: 0.1
       lambda_ce: 1.0
   data:
-    text: []
+    # Replace these inline smoke samples with your real held-out-clean training
+    # corpus paths before a serious run.
+    text:
+      - "Model upscaling should preserve parent behavior while new expert capacity specializes."
+      - "A benchmark delta must compare the parent, lifted child, and trained child checkpoints."
     multimodal: []
 
 output_dir: runs/qwen36_a3b_v1

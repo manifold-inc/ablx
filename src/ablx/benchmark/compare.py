@@ -14,6 +14,8 @@ def compare_reports(
     thresholds: dict[str, float],
     out_dir: str | Path | None = None,
     label: str = "candidate",
+    baseline_role: str = "parent",
+    candidate_role: str | None = None,
 ) -> dict[str, Any]:
     base_scores = dict(baseline.get("scores", {}))
     cand_scores = dict(candidate.get("scores", {}))
@@ -61,6 +63,8 @@ def compare_reports(
     report = {
         "baseline_model": baseline.get("model"),
         "candidate_model": candidate.get("model"),
+        "baseline_role": baseline_role,
+        "candidate_role": candidate_role or label,
         "label": label,
         "task_deltas": deltas,
         "aggregate_deltas": aggregate_deltas,
@@ -70,7 +74,9 @@ def compare_reports(
     if out_dir:
         out = Path(out_dir)
         write_json(out / f"delta_vs_parent_{label}.json", report)
-        (out / "BENCH_SUMMARY.md").write_text(render_summary(report), encoding="utf-8")
+        (out / f"BENCH_SUMMARY_{label}.md").write_text(render_summary(report), encoding="utf-8")
+        if label in {"final", "candidate"}:
+            (out / "BENCH_SUMMARY.md").write_text(render_summary(report), encoding="utf-8")
     return report
 
 
@@ -78,10 +84,10 @@ def render_summary(report: dict[str, Any]) -> str:
     lines = [
         "# Benchmark Summary",
         "",
-        f"Baseline: `{report.get('baseline_model')}`",
-        f"Candidate: `{report.get('candidate_model')}`",
+        f"Baseline ({report.get('baseline_role')}): `{report.get('baseline_model')}`",
+        f"Candidate ({report.get('candidate_role')}): `{report.get('candidate_model')}`",
         "",
-        "| Aggregate | Parent | Candidate | Relative Change | Status |",
+        f"| Aggregate | {report.get('baseline_role')} | {report.get('candidate_role')} | Relative Change | Status |",
         "| --- | ---: | ---: | ---: | --- |",
     ]
     for domain, values in report.get("aggregate_deltas", {}).items():

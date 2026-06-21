@@ -15,11 +15,13 @@ from ablx.config import ProbeGatesConfig, load_config
 from ablx.fixtures import create_tiny_checkpoint
 from ablx.pipeline import run_pipeline
 from ablx.probe.gates import evaluate_gate, next_token_metrics
+from ablx.train.checkpoint import trained_checkpoint_dir
+from ablx.train.trainer import build_training_commands, train_model
 from ablx.transforms.expand import expand_checkpoint
 from ablx.upsample.constrained_noise import upsample_checkpoint
 
 
-def write_config(tmp_path: Path) -> Path:
+def write_config(tmp_path: Path, *, launch: bool = False, backend: str = "local_smoke") -> Path:
     parent = tmp_path / "parent"
     out = tmp_path / "run"
     create_tiny_checkpoint(parent)
@@ -41,7 +43,15 @@ def write_config(tmp_path: Path) -> Path:
         },
         "upsample": {"generator": "constrained_noise", "noise_std": 0.0, "noise_seed": 7},
         "benchmark": {"suites": ["core"], "soft_gate": True, "limit": 4},
-        "train": {"launch": False, "num_gpus": 8, "seq_len": 128, "micro_batch": 1, "grad_accum": 1},
+        "train": {
+            "launch": launch,
+            "backend": backend,
+            "num_gpus": 8,
+            "seq_len": 128,
+            "micro_batch": 1,
+            "grad_accum": 1,
+            "data": {"text": ["tiny training sample"]},
+        },
         "output_dir": str(out),
     }
     path = tmp_path / "config.yaml"
@@ -89,15 +99,17 @@ def test_benchmark_compare_reports_regressions(tmp_path: Path) -> None:
     delta = compare_reports(parent, child, thresholds={"coding_aggregate": -0.02}, out_dir=tmp_path)
     assert delta["warnings"]
     assert (tmp_path / "BENCH_SUMMARY.md").exists()
+    assert (tmp_path / "BENCH_SUMMARY_candidate.md").exists()
 
 
 def test_compute_plan_and_pipeline(tmp_path: Path) -> None:
     cfg = load_config(write_config(tmp_path))
     estimate = compute_plan(cfg)
     assert estimate["hardware"]["num_gpus"] == 8
-    report = run_pipeline(cfg, dry_run=True)
-    assert (cfg.out_dir / "delta_vs_parent.json").exists()
+    report = run_pipeline(cfg, config_path=tmp_path / "config.yaml", dry_run=True)
     assert report["stages"]["train"]["status"] == "launch_disabled_plan_emitted"
+    assert report["stages"]["bench_final"]["skipped"] is True
+    assert report["benchmark_targets"]["final"]["benchmarked"] is False
 
 
 def test_native_benchmark_report(tmp_path: Path) -> None:
@@ -118,3 +130,35 @@ def test_hf_repo_id_is_not_treated_as_relative_path(tmp_path: Path, monkeypatch)
 
     monkeypatch.setattr(resolve_mod, "download_hf_checkpoint", fake_download)
     assert resolve_checkpoint_ref("Qwen/Qwen3.6-35B-A3B") == target
+
+
+def test_build_commands_use_real_config_path_and_worker(tmp_path: Path) -> None:
+    config_path = write_config(tmp_path, launch=True)
+    cfg = load_config(config_path)
+    command = build_training_commands(cfg, config_path=config_path)[0]
+    assert "${CONFIG}" not in " ".join(command)
+    assert str(config_path.resolve()) in command
+    assert "train-worker" in command
+
+
+def test_train_launch_local_worker_writes_checkpoint(tmp_path: Path) -> None:
+    config_path = write_config(tmp_path, launch=True)
+    cfg = load_config(config_path)
+    expand_checkpoint(cfg)
+    upsample_checkpoint(cfg)
+    report = train_model(cfg, config_path=config_path)
+    assert report["status"] == "completed"
+    assert trained_checkpoint_dir(cfg).exists()
+    assert (trained_checkpoint_dir(cfg) / "model.safetensors").exists()
+
+
+def test_pipeline_launch_benchmarks_trained_checkpoint(tmp_path: Path) -> None:
+    config_path = write_config(tmp_path, launch=True)
+    cfg = load_config(config_path)
+    report = run_pipeline(cfg, config_path=config_path)
+    assert report["stages"]["train"]["status"] == "completed"
+    assert report["stages"]["bench_final"]["checkpoint"]["role"] == "trained"
+    assert report["stages"]["bench_final"]["model"] == str(trained_checkpoint_dir(cfg))
+    assert report["stages"]["bench_final"]["model"] != str(cfg.out_dir / "upsampled")
+    assert (cfg.out_dir / "delta_vs_parent.json").exists()
+    assert (cfg.out_dir / "BENCH_SUMMARY_final.md").exists()

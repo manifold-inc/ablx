@@ -19,6 +19,8 @@ def run_benchmark(
     suite: str = "core",
     out: str | Path | None = None,
     limit: int | None = None,
+    model_role: str | None = None,
+    pipeline_stage: str | None = None,
 ) -> dict[str, Any]:
     out_dir = ensure_dir(out or ((config.out_dir / "benchmark") if config else "runs/ablx/benchmark"))
     limit = limit if limit is not None else (config.benchmark.limit if config else None)
@@ -48,6 +50,11 @@ def run_benchmark(
     report = {
         "stage": "benchmark",
         "model": str(model),
+        "checkpoint": {
+            "path": str(model),
+            "role": model_role,
+            "pipeline_stage": pipeline_stage,
+        },
         "suite": suite,
         "scores": scores,
         "aggregates": aggregate_domains(scores),

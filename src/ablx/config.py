@@ -102,6 +102,9 @@ class TrainConfig(BaseModel):
     stages: list[TrainStageConfig] = Field(default_factory=list)
     data: dict[str, Any] = Field(default_factory=dict)
     checkpoint_every: int = 1000
+    checkpoint_dir: str | None = None
+    output_checkpoint: str = "final"
+    max_worker_steps: int | None = None
 
 
 class PipelineConfig(BaseModel):

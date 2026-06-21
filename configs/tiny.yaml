@@ -42,11 +42,13 @@ benchmark:
 
 train:
   launch: false
-  backend: accelerate_fsdp
+  backend: local_smoke
   num_gpus: 8
   micro_batch: 1
   seq_len: 128
   grad_accum: 1
+  checkpoint_dir: null
+  output_checkpoint: final
   stages:
     - name: preservation_warmup
       steps: 1

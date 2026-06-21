@@ -21,5 +21,9 @@ class GateFailure(AblxError):
     """A preservation or benchmark gate failed."""
 
 
+class TrainingLaunchError(AblxError):
+    """Training launch or worker execution failed."""
+
+
 class OptionalDependencyError(AblxError):
     """An optional runtime integration was requested but is unavailable."""

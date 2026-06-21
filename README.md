@@ -29,11 +29,18 @@ ablx probe --config configs/tiny.yaml --fail-on-gate
 ablx benchmark --model /path/to/checkpoint --suite core
 ablx compute-plan --config configs/qwen36_a3b.yaml
 ablx train --config configs/tiny.yaml
+ablx train-worker --config configs/tiny.yaml
 ablx pipeline --config configs/tiny.yaml --dry-run
 ```
 
 All commands emit JSON summaries to stdout and write detailed artifacts under
 `output_dir`.
+
+`ablx train` writes the training plan and, when `train.launch: true`, launches a
+separate `ablx train-worker` subprocess. `bench_final` benchmarks only the
+checkpoint written by that worker at
+`{output_dir}/train/checkpoint/{output_checkpoint}`; if no training ran, final
+benchmarking is skipped instead of reusing the upsampled checkpoint.
 
 ## Scope
 
